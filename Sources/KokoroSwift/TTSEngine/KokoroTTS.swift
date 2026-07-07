@@ -165,7 +165,11 @@ public final class KokoroTTS {
   /// - Returns: Array of audio samples as Float values
   /// - Throws: `KokoroTTSError.tooManyTokens` if text is too long,
   ///           or `G2PProcessorError` if G2P processing fails
-  public func generateAudio(voice: MLXArray, language: Language, text: String, speed: Float = 1.0) throws -> ([Float], [MToken]?) {
+  /// - Parameter minStyleIndex: Lower bound for the token-count style index. Short
+  ///   utterances (a single word) otherwise select a low-index style vector that
+  ///   renders vowels poorly; clamping up borrows a longer-utterance style. Default
+  ///   0 leaves behavior unchanged.
+  public func generateAudio(voice: MLXArray, language: Language, text: String, speed: Float = 1.0, minStyleIndex: Int = 0) throws -> ([Float], [MToken]?) {
     // Update language if it has changed
     try updateLanguageIfNeeded(language)
 
@@ -180,7 +184,7 @@ public final class KokoroTTS {
     let (paddedInputIds, attentionMask, inputLengths, textMask, inputIds) = try prepareInputTensors(phonemizedText)
     
     // Step 3: Extract style embeddings from voice
-    let (globalStyle, acousticStyle) = extractStyleEmbeddings(from: voice, tokenCount: inputIds.count)
+    let (globalStyle, acousticStyle) = extractStyleEmbeddings(from: voice, tokenCount: inputIds.count, minStyleIndex: minStyleIndex)
     
     // Step 4: Encode text with BERT and predict duration
     let durationFeatures = encodeBERTAndDuration(
@@ -292,9 +296,12 @@ public final class KokoroTTS {
   /// - Returns: Tuple of (globalStyle, acousticStyle)
   ///   - globalStyle: Style embedding for prosody/duration (indices 128+)
   ///   - acousticStyle: Style embedding for acoustic features (indices 0-127)
-  private func extractStyleEmbeddings(from voice: MLXArray, tokenCount: Int) -> (MLXArray, MLXArray) {
-    // Extract reference style from voice embedding
-    let referenceStyle = voice[tokenCount - 1, 0 ... 1, 0...]
+  private func extractStyleEmbeddings(from voice: MLXArray, tokenCount: Int, minStyleIndex: Int = 0) -> (MLXArray, MLXArray) {
+    // The voice pack holds one style vector per utterance length. Short inputs pick
+    // a low index whose style renders vowels poorly, so clamp the index up to
+    // minStyleIndex (and never past the pack size).
+    let styleIndex = min(max(tokenCount - 1, minStyleIndex), voice.shape[0] - 1)
+    let referenceStyle = voice[styleIndex, 0 ... 1, 0...]
     
     // Split into global style (for prosody/duration) and acoustic style
     let globalStyle = referenceStyle[0 ... 1, 128...]
