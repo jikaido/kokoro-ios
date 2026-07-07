@@ -297,15 +297,16 @@ public final class KokoroTTS {
   ///   - globalStyle: Style embedding for prosody/duration (indices 128+)
   ///   - acousticStyle: Style embedding for acoustic features (indices 0-127)
   private func extractStyleEmbeddings(from voice: MLXArray, tokenCount: Int, minStyleIndex: Int = 0) -> (MLXArray, MLXArray) {
-    // The voice pack holds one style vector per utterance length. Short inputs pick
-    // a low index whose style renders vowels poorly, so clamp the index up to
-    // minStyleIndex (and never past the pack size).
-    let styleIndex = min(max(tokenCount - 1, minStyleIndex), voice.shape[0] - 1)
-    let referenceStyle = voice[styleIndex, 0 ... 1, 0...]
-    
-    // Split into global style (for prosody/duration) and acoustic style
-    let globalStyle = referenceStyle[0 ... 1, 128...]
-    let acousticStyle = referenceStyle[0 ... 1, 0 ... 127]
+    // The voice pack holds one style vector per utterance length. Take the global
+    // (prosody/duration) style at the word's NATURAL length so a short word is not
+    // over-extended (which adds a trailing artifact), and clamp only the acoustic
+    // (voice quality) style up to minStyleIndex so short words are not rendered with
+    // a poor low-index voice quality that distorts vowels.
+    let naturalIndex = min(max(tokenCount - 1, 0), voice.shape[0] - 1)
+    let acousticIndex = min(max(tokenCount - 1, minStyleIndex), voice.shape[0] - 1)
+
+    let globalStyle = voice[naturalIndex, 0 ... 1, 128...]
+    let acousticStyle = voice[acousticIndex, 0 ... 1, 0 ... 127]
     
     return (globalStyle, acousticStyle)
   }
